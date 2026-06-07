@@ -1,0 +1,921 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GOR Field Simulator — Guide d'ondes rectangulaire</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Bebas+Neue&family=Barlow:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #05090f;
+  --panel: #0a1220;
+  --border: #142238;
+  --accent: #00d4ff;
+  --accent2: #ff6b35;
+  --accent3: #39ff14;
+  --text: #cde0f5;
+  --muted: #4a6080;
+  --ecolor: #4da6ff;
+  --hcolor: #ff5555;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Barlow', sans-serif;
+  overflow-x: hidden;
+  cursor: default;
+}
+
+/* ── Scanline overlay ─────────────────────────── */
+body::before {
+  content: '';
+  position: fixed; inset: 0; z-index: 0;
+  background: repeating-linear-gradient(0deg,
+    transparent,
+    transparent 2px,
+    rgba(0,0,0,0.08) 2px,
+    rgba(0,0,0,0.08) 4px);
+  pointer-events: none;
+}
+
+/* ── Noise texture ────────────────────────────── */
+body::after {
+  content: '';
+  position: fixed; inset: 0; z-index: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+  pointer-events: none;
+  opacity: 0.5;
+}
+
+/* ── Canvas bg animation ──────────────────────── */
+#bgCanvas {
+  position: fixed; inset: 0; z-index: 0;
+  opacity: 0.18;
+}
+
+/* ── Shared layout ────────────────────────────── */
+.wrap { position: relative; z-index: 1; }
+.container { max-width: 1100px; margin: 0 auto; padding: 0 40px; }
+
+/* ── NAV ──────────────────────────────────────── */
+nav {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+  display: flex; align-items: center; gap: 24px;
+  padding: 14px 40px;
+  background: rgba(5,9,15,0.85);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgba(20,34,56,0.7);
+  animation: fadeDown 0.6s ease both;
+}
+@keyframes fadeDown {
+  from { opacity:0; transform: translateY(-14px); }
+  to   { opacity:1; transform: translateY(0); }
+}
+.nav-logo {
+  display: flex; align-items: center; gap: 10px;
+  text-decoration: none;
+}
+.nav-icon {
+  width: 32px; height: 32px;
+  border: 1.5px solid var(--accent);
+  border-radius: 7px;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 0 12px #00d4ff44;
+}
+.nav-title {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 13px;
+  letter-spacing: 3px;
+  color: var(--text);
+}
+.nav-links { margin-left: auto; display: flex; gap: 32px; }
+.nav-links a {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 2px;
+  color: var(--muted);
+  text-decoration: none;
+  transition: color 0.2s;
+}
+.nav-links a:hover { color: var(--accent); }
+.nav-cta {
+  padding: 8px 20px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--accent) !important;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 2px;
+  text-decoration: none;
+  transition: background 0.2s, box-shadow 0.2s;
+}
+.nav-cta:hover { background: #00d4ff18 !important; box-shadow: 0 0 16px #00d4ff44; }
+
+/* ── HERO ─────────────────────────────────────── */
+.hero {
+  min-height: 100vh;
+  display: flex; align-items: center; justify-content: center;
+  padding: 120px 40px 80px;
+  position: relative;
+}
+.hero-inner {
+  max-width: 860px;
+  text-align: center;
+}
+.hero-tag {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 3px;
+  color: var(--accent);
+  border: 1px solid #00d4ff33;
+  background: #00d4ff0a;
+  padding: 5px 14px;
+  border-radius: 40px;
+  margin-bottom: 32px;
+  animation: fadeUp 0.8s 0.1s ease both;
+}
+.hero-tag span.dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--accent3);
+  box-shadow: 0 0 8px var(--accent3);
+  animation: pulse 1.5s infinite;
+}
+@keyframes pulse {
+  0%,100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.7); }
+}
+.hero h1 {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: clamp(72px, 11vw, 130px);
+  line-height: 0.92;
+  letter-spacing: 4px;
+  color: var(--text);
+  animation: fadeUp 0.8s 0.2s ease both;
+}
+.hero h1 .accent { color: var(--accent); }
+.hero h1 .dim { color: var(--muted); }
+.hero-sub {
+  margin-top: 28px;
+  font-size: 16px;
+  font-weight: 300;
+  color: #7a9ab8;
+  line-height: 1.75;
+  max-width: 600px;
+  margin-left: auto;
+  margin-right: auto;
+  animation: fadeUp 0.8s 0.3s ease both;
+}
+.hero-sub strong { color: var(--text); font-weight: 500; }
+.hero-actions {
+  margin-top: 44px;
+  display: flex; align-items: center; justify-content: center; gap: 16px;
+  flex-wrap: wrap;
+  animation: fadeUp 0.8s 0.4s ease both;
+}
+.btn-primary {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 14px 36px;
+  background: var(--accent);
+  color: #05090f;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 12px;
+  letter-spacing: 2px;
+  text-decoration: none;
+  border-radius: 8px;
+  font-weight: 700;
+  transition: box-shadow 0.25s, transform 0.15s;
+  box-shadow: 0 0 28px #00d4ff55;
+}
+.btn-primary:hover { box-shadow: 0 0 48px #00d4ff88; transform: translateY(-2px); }
+.btn-secondary {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 14px 28px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 12px;
+  letter-spacing: 2px;
+  text-decoration: none;
+  border-radius: 8px;
+  transition: border-color 0.2s, color 0.2s;
+}
+.btn-secondary:hover { border-color: var(--muted); color: var(--text); }
+
+/* hero bottom divider */
+.hero-scroll {
+  position: absolute;
+  bottom: 30px; left: 50%; transform: translateX(-50%);
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 3px;
+  color: var(--muted);
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  animation: fadeUp 1s 0.8s ease both;
+}
+.scroll-arrow {
+  width: 1px; height: 28px;
+  background: linear-gradient(to bottom, var(--muted), transparent);
+  animation: scrollPulse 2s infinite;
+}
+@keyframes scrollPulse {
+  0%,100% { opacity: 0.3; }
+  50% { opacity: 1; }
+}
+
+@keyframes fadeUp {
+  from { opacity:0; transform: translateY(20px); }
+  to   { opacity:1; transform: translateY(0); }
+}
+
+/* ── STATS BAND ───────────────────────────────── */
+.stats-band {
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  padding: 22px 40px;
+  overflow: hidden;
+}
+.stats-inner {
+  display: flex; justify-content: space-around; align-items: center;
+  max-width: 1100px; margin: 0 auto;
+  gap: 0;
+}
+.stat-item { text-align: center; }
+.stat-num {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 38px;
+  letter-spacing: 2px;
+  color: var(--accent);
+  line-height: 1;
+}
+.stat-label {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 2px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+.stat-div { width: 1px; height: 36px; background: var(--border); }
+
+/* ── SECTION COMMON ───────────────────────────── */
+section { padding: 100px 40px; }
+.section-eyebrow {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 4px;
+  color: var(--accent);
+  margin-bottom: 14px;
+}
+.section-title {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: clamp(40px, 6vw, 70px);
+  letter-spacing: 3px;
+  line-height: 1;
+  color: var(--text);
+}
+.section-title .hl { color: var(--accent2); }
+
+/* ── FEATURES ─────────────────────────────────── */
+.features { background: transparent; }
+.features .container { max-width: 1100px; margin: 0 auto; }
+.features-head { text-align: center; margin-bottom: 64px; }
+.features-head p { color: #7a9ab8; font-size: 15px; font-weight: 300; margin-top: 16px; line-height: 1.7; max-width: 540px; margin-left: auto; margin-right: auto; }
+
+.feat-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+}
+.feat-card {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 30px 26px;
+  background: var(--panel);
+  position: relative;
+  overflow: hidden;
+  transition: border-color 0.3s, transform 0.25s;
+}
+.feat-card::before {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--accent-local, var(--accent)), transparent);
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+.feat-card:hover { border-color: var(--accent-local, var(--accent)); transform: translateY(-4px); }
+.feat-card:hover::before { opacity: 1; }
+.feat-card.c2 { --accent-local: var(--hcolor); }
+.feat-card.c3 { --accent-local: var(--accent3); }
+.feat-card.c4 { --accent-local: var(--accent2); }
+.feat-card.c5 { --accent-local: #a855f7; }
+.feat-card.c6 { --accent-local: var(--accent); }
+
+.feat-icon {
+  width: 44px; height: 44px;
+  border: 1px solid currentColor;
+  border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 20px;
+  color: var(--accent-local, var(--accent));
+  margin-bottom: 20px;
+  box-shadow: 0 0 16px rgba(0,212,255,0.15);
+}
+.feat-card h3 {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 13px;
+  letter-spacing: 2px;
+  color: var(--text);
+  margin-bottom: 10px;
+}
+.feat-card p {
+  font-size: 13px;
+  font-weight: 300;
+  color: #5a7898;
+  line-height: 1.75;
+}
+.feat-tag {
+  display: inline-block;
+  margin-top: 14px;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  padding: 3px 10px;
+  border-radius: 40px;
+  border: 1px solid currentColor;
+  color: var(--accent-local, var(--accent));
+  opacity: 0.7;
+}
+
+/* ── PREVIEW SECTION ──────────────────────────── */
+.preview-sec {
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.preview-sec .container { max-width: 1100px; margin: 0 auto; display: flex; gap: 80px; align-items: center; }
+.preview-text { flex: 1; }
+.preview-text p { color: #7a9ab8; font-size: 14px; font-weight: 300; line-height: 1.85; margin-top: 18px; }
+.preview-text .math-list { margin-top: 24px; display: flex; flex-direction: column; gap: 10px; }
+.math-row {
+  display: flex; align-items: baseline; gap: 12px;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 12px;
+  padding: 8px 14px;
+  border-radius: 7px;
+  border-left: 2px solid var(--accent);
+  background: #00d4ff08;
+}
+.math-row.h { border-left-color: var(--hcolor); background: #ff555508; }
+.math-row .name { color: var(--accent); font-weight: 700; min-width: 28px; }
+.math-row.h .name { color: var(--hcolor); }
+.math-row .expr { color: #5a7898; font-size: 11px; }
+
+.preview-window {
+  flex: 1.1;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 24px 80px rgba(0,0,0,0.7), 0 0 40px #00d4ff18;
+}
+.pw-bar {
+  background: #0a1220;
+  border-bottom: 1px solid var(--border);
+  padding: 10px 16px;
+  display: flex; align-items: center; gap: 8px;
+}
+.pw-dot { width: 10px; height: 10px; border-radius: 50%; }
+.pw-dot.r { background: #ff5f57; }
+.pw-dot.y { background: #febc2e; }
+.pw-dot.g { background: #28c840; }
+.pw-title {
+  margin-left: 8px;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 2px;
+  color: var(--muted);
+}
+.pw-body {
+  background: #070c18;
+  padding: 0;
+  aspect-ratio: 4/3;
+  position: relative;
+  overflow: hidden;
+}
+canvas#prevCanvas { width: 100%; height: 100%; display: block; }
+
+/* ── MODES SECTION ────────────────────────────── */
+.modes-sec { background: transparent; }
+.modes-sec .container { max-width: 1100px; margin: 0 auto; }
+.modes-head { text-align: center; margin-bottom: 60px; }
+.modes-head p { color: #7a9ab8; font-size: 15px; font-weight: 300; margin-top: 16px; line-height: 1.7; }
+
+.modes-table-wrap {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--panel);
+}
+.modes-table-head {
+  display: grid;
+  grid-template-columns: 80px 80px 1fr 1fr 1fr 1fr;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 2px;
+  color: var(--muted);
+}
+.modes-row {
+  display: grid;
+  grid-template-columns: 80px 80px 1fr 1fr 1fr 1fr;
+  padding: 14px 20px;
+  border-bottom: 1px solid #0d1a2a;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 12px;
+  align-items: center;
+  transition: background 0.2s;
+}
+.modes-row:last-child { border-bottom: none; }
+.modes-row:hover { background: #0a1525; }
+.mode-badge-sm {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  font-family: 'Share Tech Mono', monospace;
+}
+.badge-te { background: #00d4ff18; color: var(--accent); border: 1px solid #00d4ff33; }
+.badge-tm { background: #ff6b3518; color: var(--accent2); border: 1px solid #ff6b3533; }
+.row-fc { color: var(--accent3); }
+.row-lc { color: #7a9ab8; }
+.row-dom { color: var(--muted); font-size: 10px; }
+.row-comp { color: #5a7898; font-size: 10px; }
+
+/* ── CTA ──────────────────────────────────────── */
+.cta-sec {
+  text-align: center;
+  padding: 120px 40px;
+  position: relative;
+  overflow: hidden;
+}
+.cta-glow {
+  position: absolute; top: 50%; left: 50%;
+  transform: translate(-50%,-50%);
+  width: 600px; height: 300px;
+  background: radial-gradient(ellipse, #00d4ff12 0%, transparent 70%);
+  pointer-events: none;
+}
+.cta-sec .section-title { font-size: clamp(50px, 8vw, 90px); }
+.cta-sec p { color: #7a9ab8; font-size: 15px; font-weight: 300; line-height: 1.7; max-width: 480px; margin: 20px auto 44px; }
+
+/* ── FOOTER ───────────────────────────────────── */
+footer {
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+  padding: 30px 40px;
+  display: flex; align-items: center; gap: 24px;
+}
+.footer-logo {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 12px;
+  letter-spacing: 3px;
+  color: var(--muted);
+}
+footer p {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: var(--muted);
+  margin-left: auto;
+}
+.footer-links { display: flex; gap: 24px; }
+.footer-links a {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  color: var(--muted);
+  text-decoration: none;
+  transition: color 0.2s;
+}
+.footer-links a:hover { color: var(--accent); }
+
+/* ── Responsive ───────────────────────────────── */
+@media (max-width: 900px) {
+  .feat-grid { grid-template-columns: repeat(2, 1fr); }
+  .preview-sec .container { flex-direction: column-reverse; }
+  .preview-window { width: 100%; }
+  .modes-table-head, .modes-row { grid-template-columns: 70px 70px 1fr 1fr; }
+  .modes-table-head div:nth-child(5),
+  .modes-table-head div:nth-child(6),
+  .modes-row div:nth-child(5),
+  .modes-row div:nth-child(6) { display: none; }
+  footer { flex-wrap: wrap; }
+}
+@media (max-width: 600px) {
+  .feat-grid { grid-template-columns: 1fr; }
+  .nav-links { display: none; }
+  .hero h1 { font-size: 60px; }
+  .stats-inner { flex-wrap: wrap; gap: 20px; }
+  .stat-div { display: none; }
+}
+</style>
+</head>
+<body>
+
+<canvas id="bgCanvas"></canvas>
+
+<div class="wrap">
+
+<!-- ── NAV ─────────────────────────────────────── -->
+<nav>
+  <a href="#" class="nav-logo">
+    <div class="nav-icon">
+      <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
+        <rect x="1" y="5" width="18" height="10" rx="1.5" stroke="#00d4ff" stroke-width="1.5"/>
+        <line x1="6" y1="5" x2="6" y2="15" stroke="#00d4ff" stroke-width="0.8" stroke-dasharray="2 1.5"/>
+        <line x1="10" y1="5" x2="10" y2="15" stroke="#00d4ff" stroke-width="0.8" stroke-dasharray="2 1.5"/>
+        <line x1="14" y1="5" x2="14" y2="15" stroke="#00d4ff" stroke-width="0.8" stroke-dasharray="2 1.5"/>
+      </svg>
+    </div>
+    <span class="nav-title">GOR SIMULATOR</span>
+  </a>
+  <div class="nav-links">
+    <a href="#features">FONCTIONS</a>
+    <a href="#modes">MODES</a>
+    <a href="#docs">DOCS</a>
+    <a href="x.html" class="nav-cta">LANCER →</a>
+  </div>
+</nav>
+
+<!-- ── HERO ─────────────────────────────────────── -->
+<section class="hero">
+  <div class="hero-inner">
+    <div class="hero-tag">
+      <span class="dot"></span>
+      SIMULATEUR EN TEMPS RÉEL — WR-90 / TOUS GUIDES
+    </div>
+    <h1>
+      <span class="dim">GOR</span> FIELD<br>
+      <span class="accent">SIMULATOR</span>
+    </h1>
+    <p class="hero-sub">
+      Visualisez en temps réel les champs électromagnétiques<br>
+      dans un <strong>guide d'ondes rectangulaire</strong> pour tous les modes
+      <strong>TE<sub>mn</sub></strong> et <strong>TM<sub>mn</sub></strong>.
+    </p>
+    <div class="hero-actions">
+      <a href="x.html" class="btn-primary">
+        <svg width="14" height="14" fill="none" viewBox="0 0 14 14"><polygon points="3,1 13,7 3,13" fill="currentColor"/></svg>
+        OUVRIR LE SIMULATEUR
+      </a>
+      <a href="#features" class="btn-secondary">
+        DÉCOUVRIR LES FONCTIONS →
+      </a>
+    </div>
+  </div>
+  <div class="hero-scroll">
+    DÉFILER
+    <div class="scroll-arrow"></div>
+  </div>
+</section>
+
+<!-- ── STATS ─────────────────────────────────────── -->
+<div class="stats-band">
+  <div class="stats-inner">
+    <div class="stat-item">
+      <div class="stat-num">8+</div>
+      <div class="stat-label">MODES PRÉDÉFINIS</div>
+    </div>
+    <div class="stat-div"></div>
+    <div class="stat-item">
+      <div class="stat-num">TE &amp; TM</div>
+      <div class="stat-label">TYPES DE MODES</div>
+    </div>
+    <div class="stat-div"></div>
+    <div class="stat-item">
+      <div class="stat-num">60<span style="font-size:22px">fps</span></div>
+      <div class="stat-label">ANIMATION FLUIDE</div>
+    </div>
+    <div class="stat-div"></div>
+    <div class="stat-item">
+      <div class="stat-num">∞</div>
+      <div class="stat-label">CONFIGURATIONS a × b</div>
+    </div>
+    <div class="stat-div"></div>
+    <div class="stat-item">
+      <div class="stat-num">100%</div>
+      <div class="stat-label">NAVIGATEUR — ZÉRO INSTALL</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── FEATURES ─────────────────────────────────── -->
+<section class="features" id="features">
+  <div class="container">
+    <div class="features-head">
+      <div class="section-eyebrow">FONCTIONNALITÉS</div>
+      <div class="section-title">UN OUTIL <span class="hl">COMPLET</span></div>
+      <p>Tout ce qu'il vous faut pour explorer et comprendre la propagation des ondes électromagnétiques dans les guides rectangulaires.</p>
+    </div>
+    <div class="feat-grid">
+
+      <div class="feat-card">
+        <div class="feat-icon">⚡</div>
+        <h3>CHAMP ÉLECTRIQUE E</h3>
+        <p>Visualisez le champ <strong>E</strong> avec des vecteurs animés, modulé par cos(ωt). Basculez l'affichage en un clic.</p>
+        <span class="feat-tag">VECTEURS</span>
+      </div>
+
+      <div class="feat-card c2">
+        <div class="feat-icon" style="--accent-local:var(--hcolor)">🧲</div>
+        <h3>CHAMP MAGNÉTIQUE H</h3>
+        <p>Superposez le champ <strong>H</strong> en rouge, en phase sin(ωt), ou affichez ses lignes de champ continues.</p>
+        <span class="feat-tag" style="--accent-local:var(--hcolor)">LIGNES DE CHAMP</span>
+      </div>
+
+      <div class="feat-card c3">
+        <div class="feat-icon" style="--accent-local:var(--accent3)">📐</div>
+        <h3>MODES TE &amp; TM</h3>
+        <p>Sélectionnez librement les modes <strong>TE<sub>mn</sub></strong> et <strong>TM<sub>mn</sub></strong> avec validation automatique des cas non physiques (TM₀ₙ, TMₘ₀).</p>
+        <span class="feat-tag" style="--accent-local:var(--accent3)">INDICES m, n</span>
+      </div>
+
+      <div class="feat-card c4">
+        <div class="feat-icon" style="--accent-local:var(--accent2)">📏</div>
+        <h3>DIMENSIONS VARIABLES</h3>
+        <p>Ajustez <strong>a</strong> et <strong>b</strong> en continu de 5 à 80 mm. Le rapport a/b est vérifié en temps réel.</p>
+        <span class="feat-tag" style="--accent-local:var(--accent2)">WR-90 PAR DÉFAUT</span>
+      </div>
+
+      <div class="feat-card c5">
+        <div class="feat-icon" style="--accent-local:#a855f7">🔢</div>
+        <h3>FRÉQUENCE DE COUPURE</h3>
+        <p>Calcul immédiat de <strong>f<sub>c</sub></strong> et <strong>λ<sub>c</sub></strong> pour tout mode et toute géométrie, affichés dans le panneau latéral.</p>
+        <span class="feat-tag" style="--accent-local:#a855f7">CALCUL EXACT</span>
+      </div>
+
+      <div class="feat-card c6">
+        <div class="feat-icon">⚡</div>
+        <h3>PRÉRÉGLAGES RAPIDES</h3>
+        <p>8 modes standards du WR-90 prêts à l'emploi, avec fréquence de coupure affichée directement sur chaque bouton.</p>
+        <span class="feat-tag">ACCÈS 1 CLIC</span>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ── PREVIEW ─────────────────────────────────── -->
+<section class="preview-sec">
+  <div class="container">
+    <div class="preview-text">
+      <div class="section-eyebrow">PHYSIQUE SOUS-JACENTE</div>
+      <div class="section-title">ÉQUATIONS <span class="hl">EXACTES</span></div>
+      <p>Le simulateur résout et affiche les composantes transverses issues des équations de Maxwell dans un guide fermé par des parois conductrices parfaites.</p>
+      <div class="math-list">
+        <div class="math-row">
+          <span class="name">E<sub>y</sub></span>
+          <span class="expr">= E₀ · sin(mπx/a) · cos(nπy/b) · cos(ωt)</span>
+        </div>
+        <div class="math-row">
+          <span class="name">E<sub>x</sub></span>
+          <span class="expr">= −E₀ · cos(mπx/a) · sin(nπy/b) · cos(ωt)</span>
+        </div>
+        <div class="math-row h">
+          <span class="name">H<sub>z</sub></span>
+          <span class="expr">= H₀ · cos(mπx/a) · cos(nπy/b) · sin(ωt)</span>
+        </div>
+        <div class="math-row h">
+          <span class="name">f<sub>c</sub></span>
+          <span class="expr">= (c/2) · √[(m/a)² + (n/b)²]</span>
+        </div>
+      </div>
+    </div>
+    <div class="preview-window">
+      <div class="pw-bar">
+        <div class="pw-dot r"></div>
+        <div class="pw-dot y"></div>
+        <div class="pw-dot g"></div>
+        <span class="pw-title">GOR FIELD SIMULATOR — TE₁₀</span>
+      </div>
+      <div class="pw-body">
+        <canvas id="prevCanvas"></canvas>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── MODES TABLE ─────────────────────────────── -->
+<section class="modes-sec" id="modes">
+  <div class="container">
+    <div class="modes-head">
+      <div class="section-eyebrow">RÉFÉRENCE</div>
+      <div class="section-title">MODES <span class="hl">STANDARDS</span></div>
+      <p>Récapitulatif des modes prédéfinis pour le guide WR-90 (a = 22.86 mm, b = 10.16 mm).</p>
+    </div>
+    <div class="modes-table-wrap">
+      <div class="modes-table-head">
+        <div>TYPE</div>
+        <div>MODE</div>
+        <div>F. COUPURE</div>
+        <div>λ COUPURE</div>
+        <div>COMPOSANTES E</div>
+        <div>COMPOSANTES H</div>
+      </div>
+      <div id="modesTableBody"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ── CTA ─────────────────────────────────────── -->
+<section class="cta-sec">
+  <div class="cta-glow"></div>
+  <div class="section-eyebrow">PRÊT ?</div>
+  <div class="section-title">LANCEZ LA<br><span class="hl">SIMULATION</span></div>
+  <p>Ouvrez le simulateur interactif et explorez tous les modes de propagation en temps réel, directement dans votre navigateur.</p>
+  <a href="x.html" class="btn-primary" style="font-size:13px;padding:16px 44px;">
+    <svg width="14" height="14" fill="none" viewBox="0 0 14 14"><polygon points="3,1 13,7 3,13" fill="currentColor"/></svg>
+    OUVRIR LE SIMULATEUR
+  </a>
+</section>
+
+<!-- ── FOOTER ─────────────────────────────────── -->
+<footer>
+  <span class="footer-logo">GOR FIELD SIMULATOR</span>
+  <div class="footer-links">
+    <a href="x.html">Simulateur</a>
+    <a href="#features">Fonctions</a>
+    <a href="#modes">Modes</a>
+  </div>
+  <p>Guide d'ondes rectangulaire · Modes TE / TM · WR-90</p>
+</footer>
+
+</div><!-- .wrap -->
+
+<script>
+// ── Background animated field canvas ───────────────────────────────────────
+const bgCv = document.getElementById('bgCanvas');
+const bgCtx = bgCv.getContext('2d');
+let bgPhase = 0;
+function resizeBg() {
+  bgCv.width = window.innerWidth;
+  bgCv.height = window.innerHeight;
+}
+resizeBg();
+window.addEventListener('resize', resizeBg);
+
+function renderBg() {
+  const W = bgCv.width, H = bgCv.height;
+  bgCtx.clearRect(0,0,W,H);
+  const steps = 24;
+  const pad = 0;
+  const gw = W, gh = H;
+  for(let i=1;i<steps;i++) for(let j=1;j<steps;j++){
+    const nx=i/steps, ny=j/steps;
+    const kx=Math.PI, ky=0;
+    const sX=Math.sin(kx*nx), cX=Math.cos(kx*nx);
+    const Ex=0, Ey=sX;
+    const mag=Math.abs(Ey);
+    if(mag<0.05) continue;
+    const amp=Math.cos(bgPhase)*mag;
+    const scale=16*Math.abs(amp)/(mag+.001);
+    const sign=Math.sign(amp)||1;
+    const dx=0, dy=-Ey/mag*scale*sign;
+    const alpha=Math.min(0.35,mag*0.7)*Math.abs(Math.cos(bgPhase));
+    const cx=pad+nx*gw, cy=pad+(1-ny)*gh;
+    bgCtx.strokeStyle=`rgba(77,166,255,${alpha.toFixed(2)})`;
+    bgCtx.lineWidth=1;
+    bgCtx.beginPath();
+    bgCtx.moveTo(cx-dx*.5, cy-dy*.5);
+    bgCtx.lineTo(cx+dx*.5, cy+dy*.5);
+    bgCtx.stroke();
+  }
+  bgPhase += 0.025;
+  requestAnimationFrame(renderBg);
+}
+renderBg();
+
+// ── Preview canvas (small TE10 animation) ──────────────────────────────────
+const pCv = document.getElementById('prevCanvas');
+const pCtx = pCv.getContext('2d');
+let pPhase = 0;
+
+function resizePreview() {
+  const parent = pCv.parentElement;
+  pCv.width = parent.offsetWidth;
+  pCv.height = parent.offsetHeight;
+}
+resizePreview();
+window.addEventListener('resize', resizePreview);
+
+function arrowP(ctx,cx,cy,dx,dy,color,alpha){
+  if(alpha<0.04) return;
+  ctx.strokeStyle=`${color.slice(0,-1)},${alpha.toFixed(2)})`;
+  ctx.lineWidth=1.2;
+  ctx.beginPath(); ctx.moveTo(cx-dx*.5,cy-dy*.5); ctx.lineTo(cx+dx*.5,cy+dy*.5); ctx.stroke();
+  const a=Math.atan2(dy,dx),al=4;
+  ctx.beginPath();
+  ctx.moveTo(cx+dx*.5,cy+dy*.5);
+  ctx.lineTo(cx+dx*.5-al*Math.cos(a-.5),cy+dy*.5-al*Math.sin(a-.5));
+  ctx.moveTo(cx+dx*.5,cy+dy*.5);
+  ctx.lineTo(cx+dx*.5-al*Math.cos(a+.5),cy+dy*.5-al*Math.sin(a+.5));
+  ctx.stroke();
+}
+
+function renderPreview(){
+  const W=pCv.width,H=pCv.height;
+  if(!W||!H){requestAnimationFrame(renderPreview);return;}
+  const pad=20,gw=W-2*pad,gh=H-2*pad;
+  pCtx.clearRect(0,0,W,H);
+  // grid
+  pCtx.strokeStyle='#111e35'; pCtx.lineWidth=0.4;
+  for(let i=0;i<=8;i++){
+    pCtx.beginPath(); pCtx.moveTo(pad+i/8*gw,pad); pCtx.lineTo(pad+i/8*gw,pad+gh); pCtx.stroke();
+    pCtx.beginPath(); pCtx.moveTo(pad,pad+i/8*gh); pCtx.lineTo(pad+gw,pad+i/8*gh); pCtx.stroke();
+  }
+  const toX=nx=>pad+nx*gw, toY=ny=>pad+(1-ny)*gh;
+  const steps=16;
+  for(let i=1;i<steps;i++) for(let j=1;j<steps;j++){
+    const nx=i/steps,ny=j/steps;
+    const Ey=Math.sin(Math.PI*nx);
+    const mag=Math.abs(Ey);
+    if(mag<0.05) continue;
+    const amp=Math.cos(pPhase)*mag;
+    const scale=10*Math.abs(amp)/(mag+.001);
+    const sign=Math.sign(amp)||1;
+    const dx=0,dy=-Ey/mag*scale*sign;
+    const alpha=Math.min(1,mag*2)*Math.abs(Math.cos(pPhase));
+    arrowP(pCtx,toX(nx),toY(ny),dx,dy,'rgba(77,166,255,',alpha);
+  }
+  for(let i=1;i<steps;i++) for(let j=1;j<steps;j++){
+    const nx=i/steps,ny=j/steps;
+    const Hx=Math.cos(Math.PI*nx);
+    const mag=Math.abs(Hx);
+    if(mag<0.05) continue;
+    const amp=Math.sin(pPhase)*mag;
+    const scale=8*Math.abs(amp)/(mag+.001);
+    const sign=Math.sign(amp)||1;
+    const dx=Hx/mag*scale*sign,dy=0;
+    const alpha=Math.min(1,mag*2)*Math.abs(Math.sin(pPhase));
+    arrowP(pCtx,toX(nx),toY(ny),dx,dy,'rgba(255,85,85,',alpha);
+  }
+  // walls
+  pCtx.save();
+  pCtx.strokeStyle='#00d4ff'; pCtx.lineWidth=2;
+  pCtx.shadowColor='#00d4ff'; pCtx.shadowBlur=8;
+  pCtx.strokeRect(pad,pad,gw,gh);
+  pCtx.restore();
+  // label
+  pCtx.fillStyle='rgba(0,212,255,0.12)';
+  pCtx.fillRect(pad+4,pad+4,50,18);
+  pCtx.fillStyle='#00d4ff'; pCtx.font="bold 10px 'Share Tech Mono',monospace";
+  pCtx.fillText('TE₁₀',pad+8,pad+15);
+  pPhase+=0.04;
+  requestAnimationFrame(renderPreview);
+}
+renderPreview();
+
+// ── Modes table ────────────────────────────────────────────────────────────
+const MODES=[
+  ['TE',1,0,'E_y','H_x, H_z'],
+  ['TE',2,0,'E_y','H_x, H_z'],
+  ['TE',0,1,'E_x','H_y, H_z'],
+  ['TE',1,1,'E_x, E_y','H_x, H_y, H_z'],
+  ['TM',1,1,'E_x, E_y, E_z','H_x, H_y'],
+  ['TM',2,1,'E_x, E_y, E_z','H_x, H_y'],
+  ['TE',3,0,'E_y','H_x, H_z'],
+  ['TM',1,2,'E_x, E_y, E_z','H_x, H_y'],
+];
+const a=22.86e-3, b=10.16e-3;
+function fc(m,n){return (3e8/2)*Math.sqrt((m/a)**2+(n/b)**2);}
+function fmtF(f){if(f>=1e9)return(f/1e9).toFixed(2)+' GHz';if(f>=1e6)return(f/1e6).toFixed(2)+' MHz';return(f/1e3).toFixed(2)+' kHz';}
+
+const tbody=document.getElementById('modesTableBody');
+MODES.forEach(([t,m,n,comp_e,comp_h])=>{
+  const f=fc(m,n);
+  const lc=(3e8/f*100).toFixed(1)+' cm';
+  const row=document.createElement('div');
+  row.className='modes-row';
+  row.innerHTML=`
+    <div><span class="mode-badge-sm badge-${t.toLowerCase()}">${t}</span></div>
+    <div style="font-weight:700;color:var(--text)">${t}${m}${n}</div>
+    <div class="row-fc">${fmtF(f)}</div>
+    <div class="row-lc">${lc}</div>
+    <div class="row-comp" style="color:#4da6ff88">${comp_e}</div>
+    <div class="row-comp" style="color:#ff555588">${comp_h}</div>
+  `;
+  tbody.appendChild(row);
+});
+</script>
+
+</body>
+</html>
